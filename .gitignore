@@ -212,4 +212,3 @@ __marimo__/
 # Output files
 tracking_output/*
 crops/*
-tracking_viz/*
