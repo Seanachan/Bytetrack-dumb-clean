@@ -212,3 +212,5 @@ __marimo__/
 # Output files
 tracking_output/*
 crops/*
+exps/*
+.vscode/
