@@ -104,30 +104,39 @@ def select_targets(
         if crop_info:
             for crop_item in crop_info:
                 print(crop_item)
-                if crop_item.tracker_id == person_id and crop_item.frame_id == frame_id:
+                print(f"file_path: {f}")
+                if (
+                   f.replace("/home/seanachan/ByteTrack_ultralytics/", "")
+                    == crop_item.crop_path
+                ):
                     crop = crop_item
                     break
-
+        # print(f.replace("/home/seanachan/ByteTrack_ultralytics/", ""))
+        # print(crop_item.crop_path)
         if crop and hasattr(crop, "bbox"):
             bbox = crop.bbox
+        # print(f"bbox: {bbox}")
 
         if bbox:
             # Assume it's an object with attributes
             crop_details = (
-                f"the position of this crop in the original image is (x1: {bbox.x1}, y1: {bbox.y1}, "
-                f"x2: {bbox.x2}, y2: {bbox.y2}). "
+                f"the position of this crop in the original image is (x1: {bbox['x1']}, y1: {bbox['y1']}, "
+                f"x2: {bbox['x2']}, y2: {bbox['y2']}). "
             )
         else:
             crop_details = ""
-        print(crop_details)
+        print(f"crop_details: {crop_details}")
 
         payload = {
             "model": "qwen3-vl",
             "prompt": (
+                f"Don't show your thought process."
                 f"The size of the original image is height: {img_size['img_h']}, "
                 f"width: {img_size['img_w']}, "
+                f"{'='*20}\n"
                 f"I will attach a cropped image from this image to you"
                 f"{crop_details}\n\n"
+                f"{'='*20}\n"
                 f"{prompt}\n"
                 "Confirm whether it meets the requirement. "
                 "If yes, answer 'yes'. If not, answer 'no'."
