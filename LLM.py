@@ -5,6 +5,7 @@ import json
 import re
 from PIL import Image
 import io
+import time
 
 API_URL = "http://localhost:11434/api/generate"
 
@@ -55,7 +56,6 @@ def sort_key(x):
 def select_targets(
     crops_dir,
     prompt,
-    device="cpu",
     quiet=False,
     img_size={"img_h": 375, "img_w": 1242},
     crop_info=None,
@@ -88,8 +88,7 @@ def select_targets(
     if not files:
         return []
 
-    selected_ids = []
-
+    selected_ids = [] 
     for idx, f in enumerate(files, 1):
         fname = os.path.basename(f)
         person_id, frame_id = parse_filename(fname)
@@ -100,17 +99,14 @@ def select_targets(
         crop = None
         bbox = None
         if crop_info:
+            print(crop_info)
             for crop_item in crop_info:
-                # print(crop_item)
-                # print(f"file_path: {f}")
-                if (
-                    f.replace("/home/seanachan/ByteTrack_ultralytics/", "")
-                    == crop_item.crop_path
-                ):
+                file_name = os.path.basename(f)
+                crop_name = os.path.basename(crop_item.crop_path)
+
+                if file_name == crop_name:
                     crop = crop_item
                     break
-        # print(f.replace("/home/seanachan/ByteTrack_ultralytics/", ""))
-        # print(crop_item.crop_path)
         if crop and hasattr(crop, "bbox"):
             bbox = crop.bbox
         # print(f"bbox: {bbox}")
@@ -137,22 +133,30 @@ def select_targets(
             crop_details = (
                 f"Context: This is a person cropped from a traffic scene.\n\n"
             )
-        # print(f"crop_details: {crop_details}")
-
+        print("BBOX LOG:", bbox, "RAND:", time.time())
+        object = "object" if crop == None else crop.get_class(crop.cls)
         payload = {
             "model": "qwen2.5vl",
             "prompt": (
                 f"{crop_details}"
+                "You are performing a strict binary classification.\n"
+                f"Your task: Determine whether {object} meets the condition described in the prompt .\n\n"
+                "Rules:\n"
+                "- IGNORE blur, lighting, noise, image quality, and unclear appearance.\n"
+                "- ONLY consider the object's HORIZONTAL POSITION (x-axis) based on the provided location description.\n"
+                "- Do NOT judge based on identity or appearance.\n"
+                "- Do NOT say the image is blurry.\n"
+                "- You MUST answer EXACTLY one of the following: 'yes' or 'no'.\n"
                 f"Question: {prompt}\n\n"
-                f"Consider both the vehicle's appearance and its position. "
-                f"Note: A vehicle 'in the center or directly ahead' should NOT be considered as 'in the left'.\n\n"
-                f"Does this vehicle match the description? Answer 'yes' or 'no'."
+                "Answer format:\n"
+                "yes or no\n"
             ),
             "images": [encode_image(f)],
         }
 
         try:
-            resp = requests.post(API_URL, json=payload, stream=True)
+            # resp = requests.post(API_URL, json=payload, stream=True)
+            resp = requests.post(API_URL, json=payload)
             resp.raise_for_status()
         except Exception as e:
             if not quiet:
@@ -160,6 +164,7 @@ def select_targets(
             continue
 
         result_text = ""
+        
         for line in resp.iter_lines():
             if line:
                 try:
@@ -168,7 +173,7 @@ def select_targets(
                         result_text += data["response"]
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
-
+        print(f"[Result]: {result_text}")
         if not quiet:
             print(f"[DEBUG] LLM response: {result_text.strip()}")
 
