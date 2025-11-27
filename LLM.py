@@ -8,7 +8,7 @@ import io
 
 API_URL = "http://localhost:11434/api/generate"
 
-# ¡i·s¼W¡j©w¸q»İ­n¶i¦æ¤è¦V©Ê§PÂ_ªº Prompt ¦Cªí
+# [NEW] Define the list of prompts that require directional judgment
 DIRECTIONAL_PROMPTS = [
     'cars-in-the-counter-direction-of-ours', 
     'cars-in-the-same-direction-of-ours'
@@ -38,8 +38,8 @@ def encode_image(path, min_size=224):
 
     # Convert to bytes
     buffer = io.BytesIO()
-    # ¡i­×§ï¡j½T«O¨Ï¥Î¬Û¦Pªº®æ¦¡¡AÁ×§K LLM ³B²z¿ù»~
-    img.save(buffer, format=img.format if img.format in ("PNG", "JPEG") else "JPEG")
+    # Ensure consistent image format to avoid LLM processing errors
+    img.save(buffer, format=img.format if img.format in ("PNG", "JPEG", "JPG") else "JPEG")
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
@@ -92,12 +92,11 @@ def select_targets(
     if not files:
         return []
 
-    selected_ids = [] 
+    selected_ids = []
 
-    # ¡i·s¼W¡j§PÂ_·í«eªº prompt ¬O§_»İ­n¶i¦æ¤è¦V©Ê§PÂ_
-    p = prompt.lower()
-    is_directional = any(x in p for x in DIRECTIONAL_PROMPTS)
-
+    # Check if the current prompt requires directional judgment
+    prompt_lower = prompt.lower()
+    is_directional = any(x in prompt_lower for x in DIRECTIONAL_PROMPTS)
 
     for idx, f in enumerate(files, 1):
         fname = os.path.basename(f)
@@ -120,39 +119,42 @@ def select_targets(
         if crop and hasattr(crop, "bbox"):
             bbox = crop.bbox
         # print(f"bbox: {bbox}")
-        # ´£¨úª«ÅéÃş§O (¥Î©ó´£¥Üµü)
+        # æå–ç‰©é«”é¡åˆ¥ (ç”¨æ–¼æç¤ºè©)
         object_type = "object" if crop is None else crop.get_class(crop.cls)
 
         # ----------------------------------------------------
-        # ? ¡i­×§ï¡j®Ú¾Ú¬O§_¬°¤è¦V©Ê°İÃD¡Aºc«Ø¤£¦Pªº LLM ´£¥Üµü©M³W«h
+        # ? ã€ä¿®æ”¹ã€‘æ ¹æ“šæ˜¯å¦ç‚ºæ–¹å‘æ€§å•é¡Œï¼Œæ§‹å»ºä¸åŒçš„ LLM æç¤ºè©å’Œè¦å‰‡
         # ----------------------------------------------------
         
         llm_prompt = ""
-        target_llm_answer = None # ¡i·s¼W¡j¹w´Á LLM ªº¦^µª (TOWARDS/AWAY/yes)
+        target_llm_answer = None # Expected LLM answer (TOWARDS/AWAY/yes)
 
         if is_directional:
-            # °w¹ï '¦P¦V'/'°f¦V' °İÃD
+            # é‡å° 'åŒå‘'/'é€†å‘' å•é¡Œ
             
-            # 1. ³]¸m¥Ø¼Ğµª®×
+            # 1. è¨­ç½®ç›®æ¨™ç­”æ¡ˆ
             if prompt.lower() == 'cars-in-the-counter-direction-of-ours':
-                # °f¦V/ªï­±¦Ó¨Ó -> ¨®ÀY¹ïµÛ§Ú­Ì
+                # é€†å‘/è¿é¢è€Œä¾† -> è»Šé ­å°è‘—æˆ‘å€‘
                 target_llm_answer = 'TOWARDS' 
             elif prompt.lower() == 'cars-in-the-same-direction-of-ours':
-                # ¦P¦V/­I¦V§Ú­Ì -> ¨®§À¹ïµÛ§Ú­Ì
+                # åŒå‘/èƒŒå‘æˆ‘å€‘ -> è»Šå°¾å°è‘—æˆ‘å€‘
                 target_llm_answer = 'AWAY'    
-
-            # 2. ºc«Ø LLM ´£¥Üµü (¥u°İ­±¦V)
-            # ¡i·s¼W¡j³o¬O±Mªù¥Î©ó§PÂ_¨®½ø­±¦Vªº Prompt
+            else:
+                # Handle unexpected directional prompt
+                print(f"Warning: Unexpected directional prompt '{prompt}'. Setting target_llm_answer to 'UNCLEAR'.")
+                target_llm_answer = 'UNCLEAR'
+            # 2. æ§‹å»º LLM æç¤ºè© (åªå•é¢å‘)
+            # [NEW] This prompt is specifically for determining vehicle facing direction
             llm_prompt = (
                 f"Context: This is a crop of a {object_type} (Tracking ID: {person_id}) from a dashcam/traffic scene.\n\n"
                 "You are performing a strict pose classification.\n"
                 "Your task: Determine the object's facing direction.\n\n"
                 "Rules:\n"
                 "- IGNORE blur, lighting, noise, image quality, and unclear appearance.\n"
-                "- ONLY consider the object's **FACING DIRECTION** (¨®ÀY©Î¨®§À) based on the image.\n"
+                "- ONLY consider the object's **FACING DIRECTION** (è»Šé ­æˆ–è»Šå°¾) based on the image.\n"
                 "- You MUST answer EXACTLY one of the following: 'TOWARDS', 'AWAY', or 'UNCLEAR'.\n"
-                "- 'TOWARDS' means the car front/headlights are visible (ªï­±¦Ó¨Ó/°f¦V).\n"
-                "- 'AWAY' means the car back/taillights are visible (­I¦V§Ú­Ì/¦P¦V).\n"
+                "- 'TOWARDS' means the car front/headlights are visible (è¿é¢è€Œä¾†/é€†å‘).\n"
+                "- 'AWAY' means the car back/taillights are visible (èƒŒå‘æˆ‘å€‘/åŒå‘).\n"
                 "- 'UNCLEAR' if it's side-view, too blurry, or not a car.\n"
                 f"Question: Is this {object_type} facing TOWARDS or AWAY from the camera?\n\n"
                 "Answer format:\n"
@@ -160,14 +162,14 @@ def select_targets(
             )
             
         else:
-            # °w¹ï¤@¯ë¤ÀÃş°İÃD («O¯d­ìÅŞ¿è)
+            # é‡å°ä¸€èˆ¬åˆ†é¡å•é¡Œ (ä¿ç•™åŸé‚è¼¯)
             
-            # 1. ³]¸m¥Ø¼Ğµª®×
+            # 1. è¨­ç½®ç›®æ¨™ç­”æ¡ˆ
             target_llm_answer = 'YES' 
             
-            # 2. ºc«Ø LLM ´£¥Üµü («O¯d­ìÅŞ¿è¡A¥]§t¦ì¸m´y­z)
+            # 2. æ§‹å»º LLM æç¤ºè© (ä¿ç•™åŸé‚è¼¯ï¼ŒåŒ…å«ä½ç½®æè¿°)
             if bbox:
-                # ­pºâ¬Û¹ï¦ì¸m («O¯d­ìÅŞ¿è)
+                # Calculate relative position (retain original logic)
                 center_x = (bbox["x1"] + bbox["x2"]) / 2
                 center_y = (bbox["y1"] + bbox["y2"]) / 2
                 rel_x = center_x / img_size["img_w"]  # 0.0 = leftmost, 1.0 = rightmost
@@ -204,12 +206,12 @@ def select_targets(
                 "yes or no\n"
             )
         # ----------------------------------------------------
-        # 3. LLM API ©I¥s («O¯d­ìÅŞ¿è)
+        # 3. LLM API å‘¼å« (ä¿ç•™åŸé‚è¼¯)
         # ----------------------------------------------------
         payload = {
             "model": "qwen2.5vl",
-            "prompt": llm_prompt,          # <-- ª½±µ¥Î¤W­±²Õ¦nªº llm_prompt
-            "images": [encode_image(f)],   # ¹Ï¤ù¤@¼Ë¥á¶i¥h
+            "prompt": llm_prompt,          # <-- ç›´æ¥ç”¨ä¸Šé¢çµ„å¥½çš„ llm_prompt
+            "images": [encode_image(f)],   # åœ–ç‰‡ä¸€æ¨£ä¸Ÿé€²å»
         }
 
         try:
@@ -234,20 +236,20 @@ def select_targets(
             print(f"[DEBUG] LLM response: {result_text.strip()}")
 
         # ----------------------------------------------------
-        # 4. ¡i­×§ï¡j¥Ø¼Ğ¿ï¨ú§PÂ_ (®Ú¾Ú·sªºÅŞ¿è­×§ï¦¹³B)
+        # 4. ã€ä¿®æ”¹ã€‘ç›®æ¨™é¸å–åˆ¤æ–· (æ ¹æ“šæ–°çš„é‚è¼¯ä¿®æ”¹æ­¤è™•)
         # ----------------------------------------------------
         
-        # ²M²z¨Ã¤j¼g LLM ¦^À³¡A¥H§Q§PÂ_
+        # æ¸…ç†ä¸¦å¤§å¯« LLM å›æ‡‰ï¼Œä»¥åˆ©åˆ¤æ–·
         clean_response = result_text.strip().upper()
         is_selected = False
         
         if is_directional:
-            # ¡i·s¼WÅŞ¿è¡j¤è¦V©Ê°İÃD¡GÀË¬d LLM ¦^À³¬O§_²Å¦X¹w´Áªº­±¦V (TOWARDS/AWAY)
-            # ¨Ò¦p: ¦pªG prompt ¬O 'counter-direction'¡Atarget_llm_answer ¬O 'TOWARDS'
-            if target_llm_answer and clean_response.startswith(target_llm_answer):
+            # ã€æ–°å¢é‚è¼¯ã€‘æ–¹å‘æ€§å•é¡Œï¼šæª¢æŸ¥ LLM å›æ‡‰æ˜¯å¦ç¬¦åˆé æœŸçš„é¢å‘ (TOWARDS/AWAY)
+            # ä¾‹å¦‚: å¦‚æœ prompt æ˜¯ 'counter-direction'ï¼Œtarget_llm_answer æ˜¯ 'TOWARDS'
+            if target_llm_answer and clean_response == target_llm_answer:
                 is_selected = True
         else:
-            # ¡i«O¯d­ìÅŞ¿è¡j¤@¯ë¤ÀÃş°İÃD¡GÀË¬d LLM ¦^À³¬O§_¥]§t 'YES'
+            # ã€ä¿ç•™åŸé‚è¼¯ã€‘ä¸€èˆ¬åˆ†é¡å•é¡Œï¼šæª¢æŸ¥ LLM å›æ‡‰æ˜¯å¦åŒ…å« 'YES'
             if 'YES' in clean_response:
                 is_selected = True
 
