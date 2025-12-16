@@ -58,6 +58,7 @@ def select_targets(
     quiet=False,
     img_size={"img_h": 375, "img_w": 1242},
     crop_info=None,
+    road_mask=None,
 ):
     """Select target IDs from cropped images using LLM.
 
@@ -86,7 +87,7 @@ def select_targets(
     if not files:
         return []
 
-    selected_ids = [] 
+    selected_ids = []
     for idx, f in enumerate(files, 1):
         fname = os.path.basename(f)
         person_id, frame_id = parse_filename(fname)
@@ -97,7 +98,6 @@ def select_targets(
         crop = None
         bbox = None
         if crop_info:
-            print(crop_info)
             for crop_item in crop_info:
                 file_name = os.path.basename(f)
                 crop_name = os.path.basename(crop_item.crop_path)
@@ -117,27 +117,42 @@ def select_targets(
 
             # Determine horizontal position - be more strict about "left"
             if rel_x < 0.35:
-                position_desc = "on the left side of the road"
+                position_desc = "on the left side of the road "
             elif rel_x > 0.65:
                 position_desc = "on the right side of the road"
             else:
                 position_desc = "in the center or directly ahead"
 
+            if road_mask is not None:
+                # Check if the bottom center point is on the road
+                mask_height, mask_width = road_mask.shape
+                mask_x = int(center_x / img_size["img_w"] * mask_width)
+                mask_y = int(bbox["y2"] / img_size["img_h"] * mask_height)
+
+                # Ensure coordinates are within bounds
+                mask_x = min(max(mask_x, 0), mask_width - 1)
+                mask_y = min(max(mask_y, 0), mask_height - 1)
+
+                if road_mask[mask_y, mask_x] == 0:
+                    position_desc += "(off the road)"
+                else:
+                    position_desc += "(on the road)"
+
             crop_details = (
-                f"Context: This is a {crop.get_class(crop.cls)} cropped from a dashcam/traffic scene.\n"
+                f"Context: This is a {crop.get_class(crop.cls)} cropped from a dashcam/traffic scene. If the car is not on the road, then it's likely parking, not moving.\n"
                 f"Location: {position_desc} (x={center_x:.0f}/{img_size['img_w']}px = {rel_x*100:.0f}% from left)\n\n"
             )
         else:
             crop_details = (
                 f"Context: This is a person cropped from a traffic scene.\n\n"
             )
-        object = "object" if crop == None else crop.get_class(crop.cls)
+        obj = "object" if crop == None else crop.get_class(crop.cls)
         payload = {
             "model": "qwen2.5vl",
             "prompt": (
                 f"{crop_details}"
                 "You are performing a strict binary classification.\n"
-                f"Your task: Determine whether {object} meets the condition described in the prompt .\n\n"
+                f"Your task: Determine whether {obj} meets the condition described in the prompt .\n\n"
                 "Rules:\n"
                 "- IGNORE blur, lighting, noise, image quality, and unclear appearance.\n"
                 "- ONLY consider the object's HORIZONTAL POSITION (x-axis) based on the provided location description.\n"
@@ -160,7 +175,7 @@ def select_targets(
             continue
 
         result_text = ""
-        
+
         for line in resp.iter_lines():
             if line:
                 try:
